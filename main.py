@@ -1,7 +1,8 @@
-import re
-
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from moviepy.audio.io.AudioFileClip import AudioFileClip
+from moviepy.editor import VideoFileClip
+import praw
 import openai
 import requests
 import json
@@ -10,23 +11,34 @@ app = FastAPI()
 
 openai.api_key = ("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")
 
+# Create an instance of reddit class
+user_agent = "TikTokSaaS"
+reddit = praw.Reddit(username="Objective_Ad7158",
+                     password="Ferbiscool2!",
+                     client_id="oTWvTeP37ydTpslHTUDRZQ",
+                     client_secret="0-8gGOzvYqiQylNjBKqPZf5Vio_7eg",
+                     user_agent=user_agent
+                     )
+
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"API STATUS": "Online!"}
 
 
-@app.get("/generate_audio")
-async def process_video(story: str, voice: str):
-    audFile = getAudio(story)
-    with open('audio.mp3', 'wb') as f:
-        f.write(audFile)
-    return FileResponse('audio.mp3')
+@app.get("/creation_video")
+async def create_reddit(story: str, video: str, option: int):
+    if option == 0:
+        makeVideo(story, video)
+    elif option == 1:
+        story = storyGrabber(story)
+        makeVideo(story, video)
+    return FileResponse("created.mp4")
 
 
 @app.get("/generate_captions")
 async def process_captions(category: str, quantity: int):
-    captions = chatGPTResponse(0, quantity, category)
+    captions = openAIResponse(0, quantity, category)
     captions_list = captions.split("\n")
     captions_list = [caption.replace("\\", "").replace("\"", "") for caption in captions_list if caption != ""]
     return {"captions": captions_list}
@@ -34,10 +46,39 @@ async def process_captions(category: str, quantity: int):
 
 @app.get("/generate_headlines")
 async def process_headlines(category: str, quantity: int):
-    headlines = chatGPTResponse(1, quantity, category)
+    headlines = openAIResponse(1, quantity, category)
     headlines_list = headlines.split("\n")
     headlines_list = [headline.replace("\\", "").replace("\"", "") for headline in headlines_list if headline != ""]
     return {"headlines": headlines_list}
+
+
+def storyGrabber(urlInput):
+    submission = reddit.submission(
+        url=urlInput)
+    text = submission.selftext
+    return text
+
+
+def makeVideo(story, video):
+    vidPath = getVideo(video)
+    audPath = getAudio(story)
+
+    videoclip = VideoFileClip(vidPath)
+    new_clip = videoclip.without_audio()
+    audio = AudioFileClip(audPath)
+    video_with_new_audio = new_clip.set_audio(audio)
+    video_with_new_audio = video_with_new_audio.loop(duration=audio.duration)
+    video_with_new_audio.write_videofile("created.mp4", fps=30, audio_codec="aac", audio_bitrate="160k")
+    video_with_new_audio.close()
+    return "created.mp4"
+
+
+def getVideo(video):
+    videoUrl = video
+    vidFile = requests.get(videoUrl).content
+    with open('video.mp4', 'wb') as f:
+        f.write(vidFile)
+    return "video.mp4"
 
 
 def getAudio(story):
@@ -48,7 +89,9 @@ def getAudio(story):
     combinedUrl = downloadUrl + audioId + saveAs
     audFile = requests.get(combinedUrl)
 
-    return audFile.content
+    with open('audio.mp3', 'wb') as f:
+        f.write(audFile.content)
+    return "audio.mp3"
 
 
 def getId(story):
@@ -71,11 +114,12 @@ def getId(story):
     return idText
 
 
-def chatGPTResponse(option, quantity, category):
+def openAIResponse(option, quantity, category):
     if option == 0:
         response = openai.Completion.create(
             model="text-davinci-003",
-            prompt="Write me " + str(quantity) + " TikTok captions for a story from the subreddit " + category + ". Make these captions as if they are reacting to the story itself, and do not use first-person speech. Keep the captions original, but do not present any bias. Do not include hashtags.",
+            prompt="Write me " + str(
+                quantity) + " TikTok captions for a story from the subreddit " + category + ". Make these captions as if they are reacting to the story itself, and do not use first-person speech. Keep the captions original, but do not present any bias. Do not include hashtags.",
             max_tokens=500,
             temperature=0.6
         )
@@ -83,7 +127,8 @@ def chatGPTResponse(option, quantity, category):
     elif option == 1:
         response = openai.Completion.create(
             model="text-davinci-003",
-            prompt="Write me " + str(quantity) + " TikTok thumbnail hooks for a story from the subreddit " + category + ". Make these hooks related to the nature of the subreddit and a way to draw in engagement. Do not make the hooks too detailed, as you do not know the specifics of the story. In other words, make the hooks broad. Do not use vulgar language. Keep them short as well as to fit across a phone screen.",
+            prompt="Write me " + str(
+                quantity) + " TikTok thumbnail hooks for a story from the subreddit " + category + ". Make these hooks related to the nature of the subreddit and a way to draw in engagement. Do not make the hooks too detailed, as you do not know the specifics of the story. In other words, make the hooks broad. Do not use vulgar language. Keep them short as well as to fit across a phone screen.",
             max_tokens=500,
             temperature=0.6
         )
