@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
-from moviepy.audio.io.AudioFileClip import AudioFileClip
+from moviepy.editor import concatenate_audioclips, AudioFileClip
 from moviepy.editor import VideoFileClip
 import praw
 import openai
@@ -9,7 +9,7 @@ import json
 
 app = FastAPI()
 
-openai.api_key = ("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")
+openai.api_key = ()
 
 # Create an instance of reddit class
 user_agent = "TikTokSaaS"
@@ -61,8 +61,14 @@ def storyGrabber(urlInput):
 
 def makeVideo(story, video):
     vidPath = getVideo(video)
-    audPath = getAudio(story)
 
+    audioUrls = murfAPI(story)
+    audio_clip_paths = download_audio_files(audioUrls)
+    if len(audio_clip_paths) >= 2:
+        concatenate_audio_moviepy(audio_clip_paths, "conc.mp3")
+        audPath = "conc.mp3"
+    else:
+        audPath = audio_clip_paths[0]
     videoclip = VideoFileClip(vidPath)
     new_clip = videoclip.without_audio()
     audio = AudioFileClip(audPath)
@@ -81,37 +87,63 @@ def getVideo(video):
     return "video.mp4"
 
 
-def getAudio(story):
-    downloadUrl = "https://support.readaloud.app/ttstool/getParts?q="
-    saveAs = "&saveAs=narration.mp3"
-    audioId = getId(story)
+def murfAPI(userText):
+    userTextList = split_string(userText)
 
-    combinedUrl = downloadUrl + audioId + saveAs
-    audFile = requests.get(combinedUrl)
-
-    with open('audio.mp3', 'wb') as f:
-        f.write(audFile.content)
-    return "audio.mp3"
-
-
-def getId(story):
-    idUrl = "https://support.readaloud.app/ttstool/createParts"
-
-    payload = json.dumps([
-        {
-            "voiceId": "Amazon US English (Joey)",
-            "ssml": "<speak version=\"1.0\" xml:lang=\"en-US\"><prosody volume='default' rate='medium' pitch='default'>" + story + "</prosody></speak>"
-        }
-    ])
-
-    idHeaders = {
-        'Content-Type': 'application/json'
+    url = "https://api.murf.ai/v1/speech/generate-with-key"
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': 'api_211b0400-4594-484a-a5f5-8111bb85b0e8',
+        'Accept': 'application/json'
     }
 
-    response = requests.request("POST", idUrl, headers=idHeaders, data=payload)
-    audioId = response.text
-    idText = audioId[2:-2]
-    return idText
+    urlList = []
+    for chapter in userTextList:
+        payload = json.dumps({
+          "voiceId": "en-US-wayne",
+          "style": "null",
+          "text": chapter,
+          "rate": 15,
+          "pitch": 0,
+          "sampleRate": 24000,
+          "format": "MP3",
+          "channelType": "STEREO",
+          "pronunciationDictionary": {},
+          "encodeAsBase64": False
+        })
+
+        response = requests.request("POST", url, headers=headers, data=payload)
+        urlList.append(response.json()['audioFile'])
+    return urlList
+
+
+def split_string(text):
+    length = len(text)
+    max_length = 1000
+    num_parts = (length + max_length - 1) // max_length
+    part_size = (length + num_parts - 1) // num_parts
+    parts = [text[i:i+part_size] for i in range(0, length, part_size)]
+    return parts
+
+
+def download_audio_files(urlList):
+    pathList = []
+    i = 0
+    for audLink in urlList:
+        url = audLink
+        response = requests.get(url)
+
+        with open(str(i) + ".mp3", "wb") as f:
+            f.write(response.content)
+            pathList.append(f.name)
+        i += 1
+    return pathList
+
+
+def concatenate_audio_moviepy(audio_clip_paths, output_path):
+    clips = [AudioFileClip(c) for c in audio_clip_paths]
+    final_clip = concatenate_audioclips(clips)
+    final_clip.write_audiofile(output_path)
 
 
 def openAIResponse(option, quantity, category):
