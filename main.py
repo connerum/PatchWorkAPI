@@ -38,6 +38,11 @@ async def validate_api_key(api_key_header: str = Header(None)) -> None:
 
 @app.get("/")
 async def root():
+    return {"PatchWork API Server"}
+
+
+@app.get("/health")
+async def health():
     return {"API STATUS": "Online!"}
 
 
